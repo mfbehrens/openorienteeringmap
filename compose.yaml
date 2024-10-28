@@ -1,0 +1,174 @@
+version: "3.8"
+
+services:
+  postgis:
+    image: postgis/postgis:latest
+    # container_name: postgis-db
+    env_file:
+      - .env
+    ports:
+      - "${POSTGRES_PORT}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - db_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB} -p ${POSTGRES_PORT}"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+
+  pgadmin:
+    image: dpage/pgadmin4
+    env_file:
+      - .env
+    environment:
+      PGADMIN_LISTEN_PORT: 80
+    ports:
+      - 15432:80
+    networks:
+      - db_network
+    volumes:
+      - pgadmin:/var/lib/pgadmin
+    depends_on:
+      - postgis
+    healthcheck:
+      test: ["CMD", "wget", "-O", "-", "http://localhost:80/misc/ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+
+  osm2pgsql:
+    image: iboates/osm2pgsql
+    depends_on:
+      postgis:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      PGUSER: ${POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: ${POSTGRES_DB}
+      PGHOST: ${POSTGRES_HOST}
+    volumes:
+      - ./data:/data/
+      - ./osm2pgsql.lua:/style.lua
+    networks:
+      - db_network
+    command: "osm2pgsql --slim --cache=${OSM2PGSQL_CACHE} -O flex -S /style.lua /data/map.osm.pbf"
+    restart: "on-failure"
+
+
+  # pyosmium:
+  #   image: osmcode/pyosmium
+  #   container_name: pyosmium-updater
+  #   volumes:
+  #     - ./data:/data
+  #   command: "pyosmium-up-to-date -d /data"
+  #   depends_on:
+  #     - postgis
+  #   restart: always
+  #   environment:
+  #     OSM_API_URL: ${OSM_API_URL}
+  #   healthcheck:
+  #     test: ["CMD", "test", "-f", "/data/last.state.txt"]
+  #     interval: 5m
+  #     timeout: 10s
+  #     retries: 5
+
+  # tegola:
+  #   image: gospatial/tegola
+  #   env_file:
+  #     - .env
+  #   ports:
+  #     - "${TEGOLA_PORT}:8080"
+  #   volumes:
+  #     - ./tegola/tegola.toml:/tegola/config/tegola.toml:ro
+  #   depends_on:
+  #     - postgis
+  #     # - valkey
+  #   command: "serve --config=/tegola/config/tegola.toml"
+  #   networks:
+  #     - cache_network
+  #     - db_network
+  #     # - web
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "curl -f http://localhost:${TEGOLA_PORT}/health || exit 1"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 5
+
+
+  # valkey:
+  #   image: valkey/valkey:latest
+  #   ports:
+  #     - "${VALKEY_PORT}:8090"
+  #   volumes:
+  #     - cachedata:/cache
+  #   networks:
+  #     - cache_network
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "curl -f http://localhost:${VALKEY_PORT}/health || exit 1"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 5
+
+
+  martin:
+    image: ghcr.io/maplibre/martin
+    restart: unless-stopped
+    ports:
+      - 3000:3000
+    env_file:
+      - .env
+    # environment:
+    #   DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}/${POSTGRES_DB}
+    depends_on:
+      - postgis
+    volumes:
+      - ./martin.yaml:/config/martin.yaml:ro
+    networks:
+      - db_network
+      - tile_server_network
+    command: ["--config", "/config/martin.yaml"]
+
+
+  # nginx:
+  #   image: nginx:latest
+  #   ports:
+  #     - "8080:80"  # Access Martin through Nginx on port 8080
+  #   depends_on:
+  #     - martin
+  #   networks:
+  #     - tile_server_network
+  #   volumes:
+  #     - ./nginx.conf:/etc/nginx/nginx.conf:ro  # Mount custom Nginx config
+
+
+  maputnik:
+    image: ghcr.io/maplibre/maputnik:main
+    restart: unless-stopped
+    ports:
+      - 8888:80
+    volumes:
+      - ./style.json:/data/style.json
+    depends_on:
+      - martin
+    networks:
+      - tile_server_network
+
+
+volumes:
+  pgdata:
+  pgadmin:
+  # cachedata:
+
+
+networks:
+  db_network:
+  tile_server_network:
+  # cache_network:
+  # web:
+  #   external: true
