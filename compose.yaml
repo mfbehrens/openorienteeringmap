@@ -8,8 +8,10 @@ services:
       - "${POSTGRES_PORT}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./postgresql.conf:/etc/postgresql.conf
     networks:
       - db_network
+    command: -c config_file=/etc/postgresql.conf
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB} -p ${POSTGRES_PORT}"]
       interval: 30s
@@ -38,6 +40,7 @@ services:
       retries: 5
 
 
+  # DOES NOT WORK SINCE 
   osm2pgsql:
     image: iboates/osm2pgsql
     depends_on:
@@ -51,12 +54,45 @@ services:
       PGDATABASE: ${POSTGRES_DB}
       PGHOST: ${POSTGRES_HOST}
     volumes:
-      - ./data:/data/
-      - ./osm2pgsql.lua:/style.lua
+      - ./data:/data:ro
+      - ./osm2pgsql/style.lua:/style.lua:ro
     networks:
       - db_network
-    command: "osm2pgsql --slim --cache=${OSM2PGSQL_CACHE} -O flex -S /style.lua /data/map.osm.pbf"
+    command: 
+      - "--slim"
+      - "--cache=${OSM2PGSQL_CACHE}"
+      - "--output"
+      - "flex"
+      - "--style"
+      - "/style.lua"
+      - "--number-processes"
+      - "4"
+      - "/data/map.osm.pbf"
     restart: "on-failure"
+
+
+  tippecanoe:
+    build:
+      dockerfile: Dockerfile
+      context: ./data/tippecanoe
+    volumes:
+      - ./data:/data
+      - ./static_srv:/output
+    command: "tippecanoe -o /output/water_polygons.mbtiles --force -z14 -Z0 --cluster-densest-as-needed --coalesce /data/water-polygons-split-3857/water_polygons.shp"
+
+
+  shp2pgsql:
+    image: postgis/postgis:latest
+    depends_on:
+      postgis:
+        condition: service_healthy
+    env_file:
+      - .env
+    volumes:
+      - ./data:/data
+    networks:
+      - db_network
+    command: shp2pgsql -I -s ${OSM2PGSQL_SRID} /data/water-polygons-split-small/water.shp water_small
 
 
   # pyosmium:
@@ -88,6 +124,8 @@ services:
       - postgis
     volumes:
       - ./martin.yaml:/config/martin.yaml:ro
+      - ./sprites:/sprites
+      - ./data:/data
     networks:
       - db_network
       - tile_server_network
@@ -102,6 +140,7 @@ services:
       - "8080:80"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - cache:/var/cache/nginx
     networks:
       - tile_server_network
 
@@ -111,17 +150,19 @@ services:
     restart: unless-stopped
     ports:
       - 8888:80
+    volumes:
+      - ./style.json:/data/style.json
     depends_on:
-      - martin
       - nginx
     networks:
       - tile_server_network
+    # command: ["--watch", "--file", "/data/style.json"]
 
 
 volumes:
   pgdata:
   pgadmin:
-  # cachedata:
+  cache:
 
 
 networks:
