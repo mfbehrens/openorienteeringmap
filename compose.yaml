@@ -11,7 +11,8 @@ services:
       - ./postgresql.conf:/etc/postgresql.conf
     networks:
       - db_network
-    command: -c config_file=/etc/postgresql.conf
+    # TODO: Cannot connect to the db when this is commented in
+    # command: -c config_file=/etc/postgresql.conf
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB} -p ${POSTGRES_PORT}"]
       interval: 30s
@@ -132,7 +133,7 @@ services:
     command: ["--config", "/config/martin.yaml"]
 
 
-  nginx:
+  martin-nginx:
     image: nginx:alpine
     depends_on:
       - martin
@@ -140,6 +141,7 @@ services:
       - "8080:80"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      # - ./srv/sprites:/www/sprites
       - cache:/var/cache/nginx
     networks:
       - tile_server_network
@@ -151,12 +153,25 @@ services:
     ports:
       - 8888:80
     volumes:
-      - ./style.json:/data/style.json
+      - ./style/:/usr/share/nginx/html/styles/
     depends_on:
-      - nginx
+      - martin-nginx
     networks:
       - tile_server_network
-    # command: ["--watch", "--file", "/data/style.json"]
+
+  
+  # maputnik-nginx:
+  #   image: nginx:alpine
+  #   depends_on:
+  #     - maputnik
+  #   ports:
+  #     - "8888:80"
+  #   volumes:
+  #     - ./nginx/maputnik.conf:/etc/nginx/nginx.conf:ro
+  #     # - ./srv/sprites:/www/sprites
+  #     - cache:/var/cache/nginx
+  #   networks:
+  #     - tile_server_network
 
 
 volumes:

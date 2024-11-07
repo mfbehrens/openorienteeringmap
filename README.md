@@ -29,14 +29,14 @@
 - Unzip it
 
 OLD WAY:
-```
+```sh
 ogr2ogr -f GeoJSON water-polygons-split.json water-polygons-split-4326/water_polygons.shp
 tippecanoe -o water-tiles.mbtiles --force --maximum-zoom=15 --minimum-zoom=2 --drop-densest-as-needed --coalesce-densest-as-needed --simplify-only-low-zooms --coalesce --layer=water --exclude-all --read-parallel water-polygons-split.json
 ```
 
 IMPORT FROM SHP INTO POSTGIS:
-```
-shp2pgsql -I -s 4326 data/water-polygons-split-small/water.shp water_small | PGPASSWORD='my_secure_password' psql -h localhost -p 5432 -d oomap -U oom_user
+```sh
+shp2pgsql -I -s 4326 data/water-polygons-split-small/water.shp water_small | PGPASSWORD='my_secure_password' PGPASSWORD=my_secure_password psql -h localhost -p 5432 -d oomap -U oom_user
 ```
 
 ## Contour lines
@@ -48,5 +48,5 @@ shp2pgsql -I -s 4326 data/water-polygons-split-small/water.shp water_small | PGP
 ```sh
 gdalwarp -of VRT -r cubic data/srtm_germany_dtm.tif -ts 52804 43204 -overwrite data/srtm_germany_dtm.vrt
 gdal_contour -a ele -i 10 data/srtm_germany_dtm.vrt data/contour.gpkg
-
+OGR_GEOJSON_MAX_OBJ_SIZE=0 ogr2ogr -f "PostgreSQL" PG:"dbname=oomap host=localhost port=5432 user=oom_user password=my_secure_password" data/contour.geojson -nln contours -overwrite --config PG_USE_COPY YES -gt 65536 -lco GEOMETRY_NAME=geom
 ```
